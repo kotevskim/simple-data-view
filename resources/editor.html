@@ -32,6 +32,8 @@
   </div>
   <div class="container">
     <form method="POST" action="/admin/edit/{{QUERY_NAME}}">
+      <label for="name">Query Name</label>
+      <input type="text" id="name" name="name" value="{{QUERY_NAME}}" required pattern="[a-zA-Z0-9_-]+" style="width:100%;padding:0.5rem;border:1px solid #ccc;border-radius:4px;font-size:0.95rem;margin-bottom:1rem;">
       <label for="sql">SQL Query</label>
       <textarea id="sql" name="sql">{{SQL_CONTENT}}</textarea>
       <div class="cache-section">

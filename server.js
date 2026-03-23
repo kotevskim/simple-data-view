@@ -232,7 +232,7 @@ app.get('/', requireAuth, (req, res) => {
         actions = `<div class="query-actions">
           <a href="/admin/edit/${encodeURIComponent(name)}" title="Edit">&#9998;</a>
           ${cached ? `<form method="POST" action="/admin/refresh-cache/${encodeURIComponent(name)}" style="display:inline;margin:0;"><button type="submit" class="refresh-btn" title="Refresh cache">&#8635;</button></form>` : ''}
-          <form method="POST" action="/admin/delete/${encodeURIComponent(name)}" style="display:inline;margin:0;" onsubmit="return confirm('Delete query ${name}?')"><button type="submit" class="delete-btn" title="Delete">&#10005;</button></form>
+          <form method="POST" action="/admin/delete/${encodeURIComponent(name)}" style="display:inline;margin:0;" onsubmit="return confirm('Delete query ${name}?')"><button type="submit" class="delete-btn" title="Delete">&#128465;</button></form>
         </div>`;
       }
       return `<li class="query-item"><div><a href="/api/query/${encodeURIComponent(name)}">${escapeHtml(name)}</a>${cacheBadge}</div>${actions}</li>`;
@@ -312,25 +312,45 @@ app.get('/admin/edit/:queryName', requireAuth, requireAdmin, (req, res) => {
 app.post('/admin/edit/:queryName', requireAuth, requireAdmin, (req, res) => {
   const queryName = req.params.queryName;
   const sqlPath = path.join(QUERIES_DIR, queryName + '.sql');
-  const { sql, cache_enabled, cache_interval } = req.body;
+  const { sql, name, cache_enabled, cache_interval } = req.body;
 
-  fs.writeFileSync(sqlPath, sql);
+  const newName = (name || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!newName) {
+    return res.status(400).send(errorPage('Invalid Name', 'Query name must contain only letters, numbers, hyphens, and underscores.'));
+  }
+
+  const renamed = newName !== queryName;
+  if (renamed) {
+    const newSqlPath = path.join(QUERIES_DIR, newName + '.sql');
+    if (fs.existsSync(newSqlPath)) {
+      return res.status(409).send(errorPage('Already Exists', `A query named "${newName}" already exists.`));
+    }
+    fs.renameSync(sqlPath, newSqlPath);
+    fs.writeFileSync(newSqlPath, sql);
+
+    // Delete old cache file
+    const oldCachePath = path.join(CACHE_DIR, queryName + '.html');
+    if (fs.existsSync(oldCachePath)) fs.unlinkSync(oldCachePath);
+  } else {
+    fs.writeFileSync(sqlPath, sql);
+
+    // Delete cache file so it gets regenerated
+    const cachePath = path.join(CACHE_DIR, queryName + '.html');
+    if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
+  }
 
   // Update cache config
   const cacheConfig = loadCacheConfig();
+  if (renamed) delete cacheConfig[queryName];
   if (cache_enabled) {
-    cacheConfig[queryName] = {
+    cacheConfig[newName] = {
       enabled: true,
       interval: parseInt(cache_interval, 10) || 300
     };
   } else {
-    delete cacheConfig[queryName];
+    delete cacheConfig[newName];
   }
   saveCacheConfig(cacheConfig);
-
-  // Delete cache file so it gets regenerated
-  const cachePath = path.join(CACHE_DIR, queryName + '.html');
-  if (fs.existsSync(cachePath)) fs.unlinkSync(cachePath);
 
   // Restart cache intervals
   setupCacheIntervals();
