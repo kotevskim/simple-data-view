@@ -1,6 +1,6 @@
 # Simple Data View
 
-A lightweight Node.js tool that serves SQL queries as server-rendered HTML pages with filterable tables. Drop `.sql` files in a folder, point it at a PostgreSQL database, and get instant web views of your data.
+A lightweight Node.js tool that reads SQL files from a folder, executes them against a PostgreSQL database, and serves the results as server-rendered HTML pages with filterable tables. Queries can be managed through a built-in admin interface.
 
 ## Quick Start
 
@@ -25,7 +25,7 @@ A lightweight Node.js tool that serves SQL queries as server-rendered HTML pages
    ```
    Use a **read-only** database user.
 
-3. **Add SQL queries** to the `queries/` folder (one `.sql` file per query)
+3. **Add SQL queries** to the `queries/` folder (one `.sql` file per query), or use the admin interface after starting the server
 
 4. **Start the server**
    ```
@@ -38,7 +38,7 @@ A lightweight Node.js tool that serves SQL queries as server-rendered HTML pages
 - **User role** — view queries and filter results
 - **Admin role** — create, edit, and delete queries; manage caching
 
-Each `.sql` file in `queries/` appears on the home page as a clickable link. Clicking it executes the query and renders the results as a filterable HTML table.
+Each query appears on the home page as a clickable link. Clicking it executes the SQL and renders the results as a filterable HTML table. Admins can create, edit, and delete queries directly from the web interface.
 
 ## Raw HTML in Columns
 
