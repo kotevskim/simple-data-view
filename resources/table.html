@@ -18,6 +18,11 @@
     td { padding: 0.5rem 0.8rem; border-bottom: 1px solid #f0f0f0; font-size: 0.9rem; }
     tr:hover td { background: #f8fafc; }
     .filter-row input { width: 100%; padding: 0.3rem 0.5rem; border: 1px solid #ddd; border-radius: 3px; font-size: 0.8rem; }
+    .range-inputs { display: flex; align-items: center; gap: 0.3rem; }
+    .range-inputs input { width: 48%; }
+    th[data-sortable] { cursor: pointer; user-select: none; }
+    th[data-sortable]:hover { background: #eef2f7; }
+    .sort-indicator { font-size: 0.7rem; margin-left: 0.3rem; color: #aaa; }
     .row-count { font-size: 0.8rem; color: #aaa; font-weight: normal; margin-left: 0.4rem; }
   </style>
 </head>
@@ -39,7 +44,7 @@
   </div>
   <script>
     (function() {
-      // Set sticky top for filter row based on header row height
+      // Sticky filter row positioning
       var headerRow = document.querySelector('thead tr:first-child');
       var filterCells = document.querySelectorAll('.filter-row th');
       var headerHeight = headerRow.offsetHeight + 'px';
@@ -47,26 +52,45 @@
         filterCells[k].style.top = headerHeight;
       }
 
-      var filters = document.querySelectorAll('.filter-row input');
       var tbody = document.getElementById('table-body');
       var rows = tbody.getElementsByTagName('tr');
       var countEl = document.getElementById('row-count');
       var total = rows.length;
+      var headerCells = headerRow.getElementsByTagName('th');
+      var numCols = headerCells.length;
+
+      // Build filter config per column
+      var colFilters = [];
+      for (var c = 0; c < numCols; c++) {
+        var textInput = document.querySelector('.filter-row input[type="text"][data-col="' + c + '"]');
+        var minInput = document.querySelector('.filter-row input[data-col="' + c + '"][data-range="min"]');
+        var maxInput = document.querySelector('.filter-row input[data-col="' + c + '"][data-range="max"]');
+        if (minInput || maxInput) {
+          colFilters.push({ type: 'range', min: minInput, max: maxInput, col: c });
+        } else if (textInput) {
+          colFilters.push({ type: 'text', input: textInput, col: c });
+        } else {
+          colFilters.push(null);
+        }
+      }
 
       function applyFilters() {
         var visible = 0;
         for (var i = 0; i < rows.length; i++) {
           var cells = rows[i].getElementsByTagName('td');
           var show = true;
-          for (var j = 0; j < filters.length; j++) {
-            var val = filters[j].value.toLowerCase();
-            if (val && cells[j]) {
-              var cellText = cells[j].textContent.toLowerCase();
-              if (filters[j].type === 'number') {
-                if (val && cellText !== val) { show = false; break; }
-              } else {
-                if (cellText.indexOf(val) === -1) { show = false; break; }
-              }
+          for (var f = 0; f < colFilters.length; f++) {
+            var cf = colFilters[f];
+            if (!cf || !cells[cf.col]) continue;
+            var cellText = cells[cf.col].textContent;
+            if (cf.type === 'text') {
+              var val = cf.input.value.toLowerCase();
+              if (val && cellText.toLowerCase().indexOf(val) === -1) { show = false; break; }
+            } else if (cf.type === 'range') {
+              var num = parseFloat(cellText.replace(/[^0-9.\-]/g, ''));
+              if (isNaN(num)) { if (cf.min.value || cf.max.value) { show = false; break; } continue; }
+              if (cf.min.value !== '' && num < parseFloat(cf.min.value)) { show = false; break; }
+              if (cf.max.value !== '' && num > parseFloat(cf.max.value)) { show = false; break; }
             }
           }
           rows[i].style.display = show ? '' : 'none';
@@ -79,8 +103,69 @@
         }
       }
 
-      for (var i = 0; i < filters.length; i++) {
-        filters[i].addEventListener('input', applyFilters);
+      // Attach filter listeners
+      var allInputs = document.querySelectorAll('.filter-row input');
+      for (var i = 0; i < allInputs.length; i++) {
+        allInputs[i].addEventListener('input', applyFilters);
+      }
+
+      // --- Sorting ---
+      var sortState = { col: -1, dir: 0 }; // dir: 0=none, 1=asc, 2=desc
+
+      function sortTable(colIdx, dataType) {
+        if (sortState.col === colIdx) {
+          sortState.dir = (sortState.dir + 1) % 3;
+        } else {
+          sortState.col = colIdx;
+          sortState.dir = 1;
+        }
+
+        // Update indicators
+        for (var h = 0; h < headerCells.length; h++) {
+          var ind = headerCells[h].querySelector('.sort-indicator');
+          if (ind) ind.remove();
+        }
+        if (sortState.dir !== 0) {
+          var arrow = document.createElement('span');
+          arrow.className = 'sort-indicator';
+          arrow.textContent = sortState.dir === 1 ? ' \u25B2' : ' \u25BC';
+          headerCells[colIdx].appendChild(arrow);
+        }
+
+        var rowArray = Array.prototype.slice.call(rows);
+        if (sortState.dir === 0) {
+          // Restore original order
+          rowArray.sort(function(a, b) {
+            return (parseInt(a.dataset.origIdx) || 0) - (parseInt(b.dataset.origIdx) || 0);
+          });
+        } else {
+          var ascending = sortState.dir === 1;
+          rowArray.sort(function(a, b) {
+            var aText = a.getElementsByTagName('td')[colIdx].textContent;
+            var bText = b.getElementsByTagName('td')[colIdx].textContent;
+            if (dataType === 'number') {
+              var aNum = parseFloat(aText.replace(/[^0-9.\-]/g, '')) || 0;
+              var bNum = parseFloat(bText.replace(/[^0-9.\-]/g, '')) || 0;
+              return ascending ? aNum - bNum : bNum - aNum;
+            }
+            return ascending ? aText.localeCompare(bText) : bText.localeCompare(aText);
+          });
+        }
+        for (var r = 0; r < rowArray.length; r++) {
+          tbody.appendChild(rowArray[r]);
+        }
+      }
+
+      // Store original row order and attach click handlers
+      for (var r = 0; r < rows.length; r++) {
+        rows[r].dataset.origIdx = r;
+      }
+      for (var h = 0; h < headerCells.length; h++) {
+        if (headerCells[h].dataset.sortable === 'true') {
+          (function(idx, type) {
+            headerCells[idx].addEventListener('click', function() { sortTable(idx, type); });
+          })(h, headerCells[h].dataset.type);
+        }
       }
     })();
   </script>

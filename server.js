@@ -49,24 +49,57 @@ function isSqlReadOnly(sql) {
   return !FORBIDDEN_KEYWORDS.test(stripped);
 }
 
+// --- Column name parsing ---
+const KNOWN_SUFFIXES = ['_html', '_nosort', '_nofilter'];
+
+function parseColumnName(name) {
+  let displayName = name;
+  const flags = { html: false, sortable: true, filterable: true };
+  let found = true;
+  while (found) {
+    found = false;
+    for (const suffix of KNOWN_SUFFIXES) {
+      if (displayName.endsWith(suffix)) {
+        displayName = displayName.slice(0, -suffix.length);
+        if (suffix === '_html') flags.html = true;
+        if (suffix === '_nosort') flags.sortable = false;
+        if (suffix === '_nofilter') flags.filterable = false;
+        found = true;
+      }
+    }
+  }
+  return { displayName, ...flags };
+}
+
 // --- Render table HTML ---
 function renderTableHtml(queryName, columns, rows) {
   const template = loadTemplate('table.html');
 
-  const headers = columns.map(c => `<th>${escapeHtml(c.name)}</th>`).join('');
+  const NUMERIC_OIDS = new Set([20, 21, 23, 700, 701, 1700]);
+  const parsed = columns.map(c => ({
+    ...parseColumnName(c.name),
+    rawName: c.name,
+    isNumeric: NUMERIC_OIDS.has(c.dataTypeID)
+  }));
 
-  const filterInputs = columns.map((c, i) => {
-    const isNumeric = c.dataTypeID === 23 || c.dataTypeID === 20 || c.dataTypeID === 21 ||
-                      c.dataTypeID === 700 || c.dataTypeID === 701 || c.dataTypeID === 1700;
-    const type = isNumeric ? 'number' : 'text';
-    return `<th><input type="${type}" placeholder="Filter ${escapeHtml(c.name)}" data-col="${i}"></th>`;
+  const headers = parsed.map((col, i) => {
+    const sortAttr = col.sortable ? `data-sortable="true" data-col="${i}" data-type="${col.isNumeric ? 'number' : 'text'}"` : '';
+    return `<th ${sortAttr}>${escapeHtml(col.displayName)}</th>`;
+  }).join('');
+
+  const filterInputs = parsed.map((col, i) => {
+    if (!col.filterable) return '<th></th>';
+    if (col.isNumeric) {
+      return `<th><div class="range-inputs"><input type="number" placeholder="min" data-col="${i}" data-range="min" step="any"> <input type="number" placeholder="max" data-col="${i}" data-range="max" step="any"></div></th>`;
+    }
+    return `<th><input type="text" placeholder="Filter ${escapeHtml(col.displayName)}" data-col="${i}"></th>`;
   }).join('');
 
   const tableRows = rows.map(row => {
-    const cells = columns.map(c => {
-        const val = String(row[c.name] ?? '');
-        return `<td>${c.name.endsWith('_html') ? val : escapeHtml(val)}</td>`;
-      }).join('');
+    const cells = parsed.map(col => {
+      const val = String(row[col.rawName] ?? '');
+      return `<td>${col.html ? val : escapeHtml(val)}</td>`;
+    }).join('');
     return `<tr>${cells}</tr>`;
   }).join('\n');
 

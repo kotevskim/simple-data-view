@@ -40,19 +40,26 @@ A lightweight Node.js tool that reads SQL files from a folder, executes them aga
 
 Each query appears on the home page as a clickable link. Clicking it executes the SQL and renders the results as a filterable HTML table. Admins can create, edit, and delete queries directly from the web interface.
 
-## Raw HTML in Columns
+## Column Suffixes
 
-All cell values are HTML-escaped by default. To render raw HTML (e.g., links), alias the column with a `_html` suffix:
+Column aliases can include suffixes to control table behavior. Suffixes are stripped from the displayed column name and can be combined in any order.
+
+| Suffix | Effect |
+|---|---|
+| `_html` | Render cell value as raw HTML instead of escaping it |
+| `_nosort` | Disable sorting for this column |
+| `_nofilter` | Disable filtering for this column |
 
 ```sql
 SELECT
   id,
-  name,
-  '<a href="https://example.com/' || id || '">View</a>' AS action_html
+  name_nosort,
+  amount_nofilter,
+  '<a href="/details/' || id || '">View</a>' AS action_html_nosort
 FROM users;
 ```
 
-Only columns ending in `_html` render as raw HTML.
+Number columns automatically get a min-max range filter; text columns get a substring search filter.
 
 ## Caching
 
