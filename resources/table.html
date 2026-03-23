@@ -17,15 +17,14 @@
     td { padding: 0.5rem 0.8rem; border-bottom: 1px solid #f0f0f0; font-size: 0.9rem; }
     tr:hover td { background: #f8fafc; }
     .filter-row input { width: 100%; padding: 0.3rem 0.5rem; border: 1px solid #ddd; border-radius: 3px; font-size: 0.8rem; }
-    .row-count { margin: 0.5rem 1rem; font-size: 0.8rem; color: #888; }
+    .row-count { font-size: 0.8rem; color: #aaa; font-weight: normal; margin-left: 0.4rem; }
   </style>
 </head>
 <body>
   <div class="header">
-    <h1>{{QUERY_NAME}}</h1>
+    <h1>{{QUERY_NAME}} <span class="row-count" id="row-count">({{ROW_COUNT}} rows)</span></h1>
     <a href="/">Back to Home</a>
   </div>
-  <div class="row-count">Showing <span id="visible-count">{{ROW_COUNT}}</span> of {{ROW_COUNT}} rows</div>
   <div class="table-wrap">
     <table>
       <thead>
@@ -42,7 +41,8 @@
       var filters = document.querySelectorAll('.filter-row input');
       var tbody = document.getElementById('table-body');
       var rows = tbody.getElementsByTagName('tr');
-      var countEl = document.getElementById('visible-count');
+      var countEl = document.getElementById('row-count');
+      var total = rows.length;
 
       function applyFilters() {
         var visible = 0;
@@ -63,7 +63,11 @@
           rows[i].style.display = show ? '' : 'none';
           if (show) visible++;
         }
-        countEl.textContent = visible;
+        if (visible === total) {
+          countEl.textContent = '(' + total + ' rows)';
+        } else {
+          countEl.textContent = '(' + visible + ' of ' + total + ' rows)';
+        }
       }
 
       for (var i = 0; i < filters.length; i++) {
