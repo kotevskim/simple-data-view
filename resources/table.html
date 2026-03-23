@@ -141,14 +141,16 @@
         } else {
           var ascending = sortState.dir === 1;
           rowArray.sort(function(a, b) {
-            var aText = a.getElementsByTagName('td')[colIdx].textContent;
-            var bText = b.getElementsByTagName('td')[colIdx].textContent;
+            var aTd = a.getElementsByTagName('td')[colIdx];
+            var bTd = b.getElementsByTagName('td')[colIdx];
+            var aVal = aTd.dataset.sortValue || aTd.textContent;
+            var bVal = bTd.dataset.sortValue || bTd.textContent;
             if (dataType === 'number') {
-              var aNum = parseFloat(aText.replace(/[^0-9.\-]/g, '')) || 0;
-              var bNum = parseFloat(bText.replace(/[^0-9.\-]/g, '')) || 0;
+              var aNum = parseFloat(aVal.replace(/[^0-9.\-]/g, '')) || 0;
+              var bNum = parseFloat(bVal.replace(/[^0-9.\-]/g, '')) || 0;
               return ascending ? aNum - bNum : bNum - aNum;
             }
-            return ascending ? aText.localeCompare(bText) : bText.localeCompare(aText);
+            return ascending ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
           });
         }
         for (var r = 0; r < rowArray.length; r++) {

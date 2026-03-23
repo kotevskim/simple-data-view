@@ -50,11 +50,11 @@ function isSqlReadOnly(sql) {
 }
 
 // --- Column name parsing ---
-const KNOWN_SUFFIXES = ['_html', '_nosort', '_nofilter'];
+const KNOWN_SUFFIXES = ['_html', '_nosort', '_nofilter', '_sortval'];
 
 function parseColumnName(name) {
   let displayName = name;
-  const flags = { html: false, sortable: true, filterable: true };
+  const flags = { html: false, sortable: true, filterable: true, sortval: false };
   let found = true;
   while (found) {
     found = false;
@@ -64,6 +64,7 @@ function parseColumnName(name) {
         if (suffix === '_html') flags.html = true;
         if (suffix === '_nosort') flags.sortable = false;
         if (suffix === '_nofilter') flags.filterable = false;
+        if (suffix === '_sortval') flags.sortval = true;
         found = true;
       }
     }
@@ -76,11 +77,21 @@ function renderTableHtml(queryName, columns, rows) {
   const template = loadTemplate('table.html');
 
   const NUMERIC_OIDS = new Set([20, 21, 23, 700, 701, 1700]);
-  const parsed = columns.map(c => ({
+  const allParsed = columns.map(c => ({
     ...parseColumnName(c.name),
     rawName: c.name,
     isNumeric: NUMERIC_OIDS.has(c.dataTypeID)
   }));
+
+  // Link sortval columns to their display columns, then filter them out
+  const sortvalMap = {}; // displayName -> rawName of sortval column
+  for (const col of allParsed) {
+    if (col.sortval) sortvalMap[col.displayName] = col.rawName;
+  }
+  const parsed = allParsed.filter(col => !col.sortval);
+  for (const col of parsed) {
+    if (sortvalMap[col.displayName]) col.sortvalRawName = sortvalMap[col.displayName];
+  }
 
   const headers = parsed.map((col, i) => {
     const sortAttr = col.sortable ? `data-sortable="true" data-col="${i}" data-type="${col.isNumeric ? 'number' : 'text'}"` : '';
@@ -98,7 +109,8 @@ function renderTableHtml(queryName, columns, rows) {
   const tableRows = rows.map(row => {
     const cells = parsed.map(col => {
       const val = String(row[col.rawName] ?? '');
-      return `<td>${col.html ? val : escapeHtml(val)}</td>`;
+      const sortAttr = col.sortvalRawName ? ` data-sort-value="${escapeHtml(String(row[col.sortvalRawName] ?? ''))}"` : '';
+      return `<td${sortAttr}>${col.html ? val : escapeHtml(val)}</td>`;
     }).join('');
     return `<tr>${cells}</tr>`;
   }).join('\n');
