@@ -20,10 +20,11 @@ A lightweight Node.js tool that reads SQL files from a folder, executes them aga
        "password": "secret"
      },
      "admin": { "user": "admin", "password": "admin_pass" },
-     "user": { "user": "viewer", "password": "viewer_pass" }
+     "user": { "user": "viewer", "password": "viewer_pass" },
+     "appName": "My App"
    }
    ```
-   Use a **read-only** database user.
+   Use a **read-only** database user. The `appName` field is optional (defaults to "Simple Data View") and sets the name shown in page titles and headers.
 
 3. **Add SQL queries** to the `queries/` folder (one `.sql` file per query), or use the admin interface after starting the server
 

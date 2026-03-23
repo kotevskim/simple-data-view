@@ -7,6 +7,7 @@ const path = require('path');
 
 // --- Load config ---
 const config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+const APP_NAME = config.appName || 'Simple Data View';
 const QUERIES_DIR = path.join(__dirname, 'queries');
 const CACHE_DIR = path.join(__dirname, 'cache');
 const RESOURCES_DIR = path.join(__dirname, 'resources');
@@ -21,7 +22,8 @@ const pool = new Pool(config.db);
 
 // --- Load templates ---
 function loadTemplate(name) {
-  return fs.readFileSync(path.join(RESOURCES_DIR, name), 'utf8');
+  return fs.readFileSync(path.join(RESOURCES_DIR, name), 'utf8')
+    .replace(/\{\{APP_NAME\}\}/g, escapeHtml(APP_NAME));
 }
 
 // --- Cache config helpers ---
