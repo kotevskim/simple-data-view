@@ -1,0 +1,15 @@
+{
+  "name": "simple-data-view",
+  "version": "1.0.0",
+  "description": "Lightweight tool that serves SQL queries as server-rendered HTML pages with filterable tables",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.6",
+    "express": "^4.18.2",
+    "express-session": "^1.17.3",
+    "pg": "^8.11.3"
+  }
+}
