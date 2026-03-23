@@ -50,21 +50,20 @@ function isSqlReadOnly(sql) {
 }
 
 // --- Column name parsing ---
-const KNOWN_SUFFIXES = ['_html', '_nosort', '_nofilter', '_sortval'];
+const KNOWN_SUFFIXES = ['_display', '_nosort', '_nofilter'];
 
 function parseColumnName(name) {
   let displayName = name;
-  const flags = { html: false, sortable: true, filterable: true, sortval: false };
+  const flags = { display: false, sortable: true, filterable: true };
   let found = true;
   while (found) {
     found = false;
     for (const suffix of KNOWN_SUFFIXES) {
       if (displayName.endsWith(suffix)) {
         displayName = displayName.slice(0, -suffix.length);
-        if (suffix === '_html') flags.html = true;
+        if (suffix === '_display') flags.display = true;
         if (suffix === '_nosort') flags.sortable = false;
         if (suffix === '_nofilter') flags.filterable = false;
-        if (suffix === '_sortval') flags.sortval = true;
         found = true;
       }
     }
@@ -83,14 +82,22 @@ function renderTableHtml(queryName, columns, rows) {
     isNumeric: NUMERIC_OIDS.has(c.dataTypeID)
   }));
 
-  // Link sortval columns to their display columns, then filter them out
-  const sortvalMap = {}; // displayName -> rawName of sortval column
+  // Link display companion columns to their primary columns
+  const displayMap = {}; // displayName -> rawName of display column
+  const primaryNames = new Set(allParsed.filter(c => !c.display).map(c => c.displayName));
   for (const col of allParsed) {
-    if (col.sortval) sortvalMap[col.displayName] = col.rawName;
+    if (col.display) displayMap[col.displayName] = col.rawName;
   }
-  const parsed = allParsed.filter(col => !col.sortval);
+
+  // Filter: remove paired display columns, keep standalone display columns as raw HTML
+  const parsed = allParsed.filter(col => {
+    if (!col.display) return true;
+    if (primaryNames.has(col.displayName)) return false; // paired — hide it
+    col.standaloneHtml = true; // standalone — keep and render as raw HTML
+    return true;
+  });
   for (const col of parsed) {
-    if (sortvalMap[col.displayName]) col.sortvalRawName = sortvalMap[col.displayName];
+    if (!col.display && displayMap[col.displayName]) col.displayRawName = displayMap[col.displayName];
   }
 
   const headers = parsed.map((col, i) => {
@@ -108,9 +115,15 @@ function renderTableHtml(queryName, columns, rows) {
 
   const tableRows = rows.map(row => {
     const cells = parsed.map(col => {
-      const val = String(row[col.rawName] ?? '');
-      const sortAttr = col.sortvalRawName ? ` data-sort-value="${escapeHtml(String(row[col.sortvalRawName] ?? ''))}"` : '';
-      return `<td${sortAttr}>${col.html ? val : escapeHtml(val)}</td>`;
+      const rawVal = String(row[col.rawName] ?? '');
+      if (col.standaloneHtml) {
+        return `<td>${rawVal}</td>`;
+      }
+      if (col.displayRawName) {
+        const displayVal = String(row[col.displayRawName] ?? '');
+        return `<td data-sort-value="${escapeHtml(rawVal)}">${displayVal}</td>`;
+      }
+      return `<td>${escapeHtml(rawVal)}</td>`;
     }).join('');
     return `<tr>${cells}</tr>`;
   }).join('\n');
