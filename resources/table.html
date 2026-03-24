@@ -9,6 +9,7 @@
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #333; }
     .header { background: #fff; padding: 1rem 2rem; border-bottom: 1px solid #e5e5e5; display: flex; justify-content: space-between; align-items: center; }
     .header h1 { font-size: 1.2rem; }
+    .header-actions { display: flex; align-items: center; gap: 0.5rem; }
     .header a { text-decoration: none; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.85rem; border: 1px solid #ccc; background: #fff; color: #333; }
     .header a:hover { background: #f0f0f0; }
     .table-wrap { margin: 1rem; overflow: auto; max-height: calc(100vh - 4.5rem); }
@@ -29,7 +30,10 @@
 <body>
   <div class="header">
     <h1>{{QUERY_NAME}} <span class="row-count" id="row-count">({{ROW_COUNT}} rows)</span></h1>
-    <a href="/">Back to Home</a>
+    <div class="header-actions">
+      <a href="{{EXPORT_URL}}">Export</a>
+      <a href="/">Back to Home</a>
+    </div>
   </div>
   <div class="table-wrap">
     <table>

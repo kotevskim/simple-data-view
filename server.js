@@ -132,6 +132,7 @@ function renderTableHtml(queryName, columns, rows) {
 
   return template
     .replace(/\{\{QUERY_NAME\}\}/g, escapeHtml(queryName))
+    .replace('{{EXPORT_URL}}', `/api/query/${encodeURIComponent(queryName)}/export`)
     .replace('{{TABLE_HEADERS}}', headers)
     .replace('{{FILTER_INPUTS}}', filterInputs)
     .replace('{{TABLE_ROWS}}', tableRows)
@@ -175,6 +176,47 @@ function errorPage(title, message) {
     .box{background:#fff;padding:2rem;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.1);text-align:center;max-width:500px;}
     h1{color:#dc2626;font-size:1.3rem;margin-bottom:1rem;}a{color:#2563eb;}</style></head>
     <body><div class="box"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p><br><a href="/">Back to Home</a></div></body></html>`;
+}
+
+async function executeSavedQuery(queryName) {
+  const sqlPath = path.join(QUERIES_DIR, queryName + '.sql');
+  if (!fs.existsSync(sqlPath)) {
+    const err = new Error(`Query "${queryName}" does not exist.`);
+    err.status = 404;
+    err.title = 'Not Found';
+    throw err;
+  }
+
+  const sql = fs.readFileSync(sqlPath, 'utf8');
+  if (!isSqlReadOnly(sql)) {
+    const err = new Error('This query contains modifying statements and cannot be executed.');
+    err.status = 400;
+    err.title = 'Rejected';
+    throw err;
+  }
+
+  return pool.query(sql);
+}
+
+function escapeCsvValue(value) {
+  const str = String(value ?? '');
+  if (/[",\r\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function rowsToCsv(fields, rows) {
+  const allParsed = fields.map(f => ({
+    rawName: f.name,
+    ...parseColumnName(f.name)
+  }));
+  const primaryNames = new Set(allParsed.filter(c => !c.display).map(c => c.displayName));
+  const exportCols = allParsed.filter(col => !col.display || !primaryNames.has(col.displayName));
+
+  const headers = exportCols.map(c => escapeCsvValue(c.displayName)).join(',');
+  const lines = rows.map(row => exportCols.map(c => escapeCsvValue(row[c.rawName])).join(','));
+  return [headers, ...lines].join('\r\n');
 }
 
 // --- Routes ---
@@ -257,11 +299,6 @@ app.get('/', requireAuth, (req, res) => {
 // Execute query and return HTML table
 app.get('/api/query/:queryName', requireAuth, async (req, res) => {
   const queryName = req.params.queryName;
-  const sqlPath = path.join(QUERIES_DIR, queryName + '.sql');
-
-  if (!fs.existsSync(sqlPath)) {
-    return res.status(404).send(errorPage('Not Found', `Query "${queryName}" does not exist.`));
-  }
 
   // Check cache
   const cacheConfig = loadCacheConfig();
@@ -272,17 +309,35 @@ app.get('/api/query/:queryName', requireAuth, async (req, res) => {
     }
   }
 
-  // Read and execute SQL
-  const sql = fs.readFileSync(sqlPath, 'utf8');
-  if (!isSqlReadOnly(sql)) {
-    return res.status(400).send(errorPage('Rejected', 'This query contains modifying statements and cannot be executed.'));
-  }
-
   try {
-    const result = await pool.query(sql);
+    const result = await executeSavedQuery(queryName);
     const html = renderTableHtml(queryName, result.fields, result.rows);
     res.send(html);
   } catch (err) {
+    if (err.status) {
+      return res.status(err.status).send(errorPage(err.title || 'Error', err.message));
+    }
+    res.status(500).send(errorPage('Query Error', err.message));
+  }
+});
+
+// Execute query and return CSV download (Excel-compatible)
+app.get('/api/query/:queryName/export', requireAuth, async (req, res) => {
+  const queryName = req.params.queryName;
+
+  try {
+    const result = await executeSavedQuery(queryName);
+    const csv = rowsToCsv(result.fields, result.rows);
+    const date = new Date().toISOString().slice(0, 10);
+    const safeQueryName = queryName.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeQueryName}-${date}.csv"`);
+    res.send('\uFEFF' + csv);
+  } catch (err) {
+    if (err.status) {
+      return res.status(err.status).send(errorPage(err.title || 'Error', err.message));
+    }
     res.status(500).send(errorPage('Query Error', err.message));
   }
 });
