@@ -6,6 +6,7 @@
     "user": "spendlane",
     "password": "spendlane"
   },
+  "appName": "SpendLane Explorer",
   "admin": { "user": "admin", "password": "admin" },
   "user": { "user": "user", "password": "user" }
 }
