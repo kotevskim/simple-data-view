@@ -41,14 +41,75 @@ function saveCacheConfig(cfg) {
 
 // --- SQL safety check ---
 const FORBIDDEN_KEYWORDS = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE)\b/i;
+const METADATA_ACCESS_RULES = [
+  {
+    pattern: /(?:"information_schema"|information_schema)\s*\./i,
+    message: 'Queries that access information_schema are not allowed.'
+  },
+  {
+    pattern: /(?:"pg_catalog"|pg_catalog)\s*\./i,
+    message: 'Queries that access pg_catalog are not allowed.'
+  },
+  {
+    pattern: /(?:"pg_toast"|pg_toast)\s*\./i,
+    message: 'Queries that access pg_toast are not allowed.'
+  },
+  {
+    pattern: /(?:"pg_temp(?:_[0-9]+)?"|pg_temp(?:_[0-9]+)?)\s*\./i,
+    message: 'Queries that access temporary PostgreSQL system schemas are not allowed.'
+  },
+  {
+    pattern: /\bshow\b/i,
+    message: 'SHOW statements are not allowed.'
+  },
+  {
+    pattern: /\bcurrent_setting\s*\(/i,
+    message: 'Queries that call current_setting() are not allowed.'
+  },
+  {
+    pattern: /\bversion\b\s*(?:\(\s*\))?/i,
+    message: 'Queries that use version metadata are not allowed.'
+  },
+  {
+    pattern: /\bcurrent_database\b\s*(?:\(\s*\))?/i,
+    message: 'Queries that use current_database metadata are not allowed.'
+  },
+  {
+    pattern: /\bcurrent_user\b/i,
+    message: 'Queries that use current_user metadata are not allowed.'
+  },
+  {
+    pattern: /\bsession_user\b/i,
+    message: 'Queries that use session_user metadata are not allowed.'
+  },
+  {
+    pattern: /\bpg_[a-z0-9_]+\b/i,
+    message: 'Queries that reference pg_* system objects/functions are not allowed.'
+  }
+];
 
-function isSqlReadOnly(sql) {
-  // Strip comments and string literals before checking
-  const stripped = sql
+function stripSqlForSafetyChecks(sql) {
+  return String(sql || '')
     .replace(/--.*$/gm, '')
     .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/'[^']*'/g, '');
+    .replace(/'(?:''|[^'])*'/g, '');
+}
+
+function isSqlReadOnly(sql) {
+  const stripped = stripSqlForSafetyChecks(sql);
   return !FORBIDDEN_KEYWORDS.test(stripped);
+}
+
+function getSqlSafetyError(sql) {
+  const stripped = stripSqlForSafetyChecks(sql);
+  if (FORBIDDEN_KEYWORDS.test(stripped)) {
+    return 'This query contains modifying statements and cannot be executed.';
+  }
+
+  for (const rule of METADATA_ACCESS_RULES) {
+    if (rule.pattern.test(stripped)) return rule.message;
+  }
+  return null;
 }
 
 // --- Column name parsing ---
@@ -179,6 +240,11 @@ function errorPage(title, message) {
 }
 
 async function executeSavedQuery(queryName) {
+  const { sql } = loadAndValidateSavedQuery(queryName);
+  return pool.query(sql);
+}
+
+function loadAndValidateSavedQuery(queryName) {
   const sqlPath = path.join(QUERIES_DIR, queryName + '.sql');
   if (!fs.existsSync(sqlPath)) {
     const err = new Error(`Query "${queryName}" does not exist.`);
@@ -188,14 +254,14 @@ async function executeSavedQuery(queryName) {
   }
 
   const sql = fs.readFileSync(sqlPath, 'utf8');
-  if (!isSqlReadOnly(sql)) {
-    const err = new Error('This query contains modifying statements and cannot be executed.');
+  const safetyError = getSqlSafetyError(sql);
+  if (safetyError) {
+    const err = new Error(safetyError);
     err.status = 400;
     err.title = 'Rejected';
     throw err;
   }
-
-  return pool.query(sql);
+  return { sql, sqlPath };
 }
 
 function escapeCsvValue(value) {
@@ -299,6 +365,16 @@ app.get('/', requireAuth, (req, res) => {
 // Execute query and return HTML table
 app.get('/api/query/:queryName', requireAuth, async (req, res) => {
   const queryName = req.params.queryName;
+  let sql;
+
+  try {
+    ({ sql } = loadAndValidateSavedQuery(queryName));
+  } catch (err) {
+    if (err.status) {
+      return res.status(err.status).send(errorPage(err.title || 'Error', err.message));
+    }
+    return res.status(500).send(errorPage('Query Error', err.message));
+  }
 
   // Check cache
   const cacheConfig = loadCacheConfig();
@@ -310,7 +386,7 @@ app.get('/api/query/:queryName', requireAuth, async (req, res) => {
   }
 
   try {
-    const result = await executeSavedQuery(queryName);
+    const result = await pool.query(sql);
     const html = renderTableHtml(queryName, result.fields, result.rows);
     res.send(html);
   } catch (err) {
@@ -370,6 +446,10 @@ app.post('/admin/edit/:queryName', requireAuth, requireAdmin, (req, res) => {
   const queryName = req.params.queryName;
   const sqlPath = path.join(QUERIES_DIR, queryName + '.sql');
   const { sql, name, cache_enabled, cache_interval } = req.body;
+  const safetyError = getSqlSafetyError(sql);
+  if (safetyError) {
+    return res.status(400).send(errorPage('Rejected', safetyError));
+  }
 
   const newName = (name || '').replace(/[^a-zA-Z0-9_-]/g, '');
   if (!newName) {
@@ -423,6 +503,11 @@ app.get('/admin/new', requireAuth, requireAdmin, (req, res) => {
 // Create new query
 app.post('/admin/new', requireAuth, requireAdmin, (req, res) => {
   const { name, sql } = req.body;
+  const safetyError = getSqlSafetyError(sql);
+  if (safetyError) {
+    return res.status(400).send(errorPage('Rejected', safetyError));
+  }
+
   const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '');
   if (!safeName) {
     return res.status(400).send(errorPage('Invalid Name', 'Query name must contain only letters, numbers, hyphens, and underscores.'));
@@ -488,7 +573,11 @@ async function refreshQueryCache(queryName) {
   if (!fs.existsSync(sqlPath)) return;
 
   const sql = fs.readFileSync(sqlPath, 'utf8');
-  if (!isSqlReadOnly(sql)) return;
+  const safetyError = getSqlSafetyError(sql);
+  if (safetyError) {
+    console.log(`[cache] Skipped ${queryName}: ${safetyError}`);
+    return;
+  }
 
   try {
     const result = await pool.query(sql);
